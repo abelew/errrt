@@ -64,7 +64,7 @@ $data
         } ## End checking for a read with a valid terminus.
     } ## End iterating over every read.
     foreach my $k (keys %{$indices}) {
-        print $hist "$k $indices->{$k}\n";
+        print $hist "$k\t$indices->{$k}\n";
     }
     $hist->close();
     $inputted->close();

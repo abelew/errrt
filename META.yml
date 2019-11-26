@@ -1,0 +1,35 @@
+---
+abstract: 'Quantify RT error rates.'
+author:
+  - 'Ashton Trey Belew <abelew@gmail.com>'
+build_requires:
+  ExtUtils::MakeMaker: 6.36
+configure_requires:
+  ExtUtils::MakeMaker: 6.36
+distribution_type: module
+dynamic_config: 1
+generated_by: 'Module::Install version 1.19'
+license: unknown
+meta-spec:
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: 1.4
+name: errrt
+no_index:
+  directory:
+    - t
+requires:
+  Bio::DB::Universal: 0
+  Bio::FeatureIO: 0
+  Bio::SearchIO: 0
+  Bio::SeqIO: 0
+  Cwd: 0
+  Error: 0
+  File::Basename: 0
+  File::Copy: 0
+  File::Find: 0
+  File::Path: 0
+  File::Spec: 0
+  File::Which: 0
+  FileHandle: 0
+  autodie: 0
+version: '201911'

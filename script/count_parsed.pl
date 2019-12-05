@@ -42,4 +42,4 @@ my $terminal_string = substr($template, 0, $length);
 my $fasta = basename($output, ('.fasta'));
 my $fasta_result = "${fasta}_fasta.txt";
 print "Counting results\n";
-my $counts = errrt::Count_Parsed(input => $indices);
+my $counts = errrt::Count_Parsed(input => $input);

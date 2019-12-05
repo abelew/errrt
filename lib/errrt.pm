@@ -16,6 +16,8 @@ use File::Which qw"which";
 use POSIX qw"ceil";
 use Storable qw"store retrieve nstore";
 
+use Data::Dumper;
+
 use strict;
 use 5.008_005;
 our $VERSION = '0.01';
@@ -61,8 +63,8 @@ $data
             } else {
                 $indices->{$index} = 1;
             }
-        } ## End checking for a read with a valid terminus.
-    } ## End iterating over every read.
+        }                      ## End checking for a read with a valid terminus.
+    }                          ## End iterating over every read.
     foreach my $k (keys %{$indices}) {
         print $hist "$k\t$indices->{$k}\n";
     }
@@ -98,90 +100,140 @@ $args{library_seq}
 sub Parse_Fasta {
     my (%args) = @_;
     my $f = FileHandle->new("less $args{input} |");
-    my $output = "parsed.txt";
+    my $output = $args{output};
     my $out = FileHandle->new(">${output}");
     my $searchio = Bio::SearchIO->new(-format => 'fasta', -fh => $f);
-    my $data_file = "${output}.pdata";
+    my $data_file = basename($output, ('.txt', '.xz', '.gz'));
+    $data_file = basename($output, ('.txt'));
+    $data_file .= ".pdata";
     my $results = 0;
     my $indices = {};
-    while (my $result = $searchio->next_result()) {
+  SEARCHLOOP: while (my $result = $searchio->next_result()) {
         $results++;
-        while (my $hit = $result->next_hit) {
-            my $query_name = $result->query_name();
-            my $query_length = $result->query_length();
-            my $accession = $hit->accession();
-            my $library_id = $hit->name();
-            my $length = $hit->length();
-            my $score = $hit->raw_score();
-            my $sig = $hit->significance();
-            my $ident = $hit->frac_identical();
-            my $lstrand = $hit->strand('hit');
-            my ($count, $direction, $index) = split(/_/, $query_name);
-            my @hitlst = ();
-            if ($indices->{$index}) {
-                @hitlst = @{$indices->{$index}};
-            } else {
-                $indices->{$index} = [];
+        ## There is only ever 1 hit.
+        my $hit = $result->next_hit;
+        my $query_name = $result->query_name();
+        my $query_length = $result->query_length();
+        my $accession = $hit->accession();
+        my $library_id = $hit->name();
+        my $length = $hit->length();
+        my $score = $hit->raw_score();
+        my $sig = $hit->significance();
+        my $ident = $hit->frac_identical();
+        my $lstrand = $hit->strand('hit');
+        my ($count, $direction, $index) = split(/_/, $query_name);
+        my @hitlst = ();
+        if ($indices->{$index}) {
+            @hitlst = @{$indices->{$index}};
+        }
+
+        my $hit_len;
+        my $hit_matches;
+        my $first_qstart = -1;
+        my $first_qend = -1;
+        my $first_lstart = -1;
+        my $first_lend = -1;
+        my $hsp_count = 0;
+        my $hits = {};
+
+        my $hsp = $hit->next_hsp;
+        my @query_mismatches = $hsp->seq_inds('query', 'mismatch');
+        my @hit_mismatches = $hsp->seq_inds('hit', 'mismatch');
+        my @product_gap = $hsp->seq_inds('query', 'gap');
+        my @template_gap = $hsp->seq_inds('hit', 'gap');
+        my $q_seq = $hsp->query_string;
+        my $h_seq = $hsp->hit_string;
+        ## There is an important caveat here: The indices returned by seq_inds()
+        ## do not take into account the positions taken up by gap characters.
+        ## As a result, if one wishes to get the changed nucleotide _after_ an
+        ## indel, then any attempt to find those nucleotides is doomed to
+        ## failure until one rewrites the sequence without the '-' characters.
+        my $q_raw = $q_seq;
+        $q_raw =~ s/\-//g;
+        my $h_raw = $h_seq;
+        $h_raw =~ s/\-//g;
+        ## I expect the length of query_mismatches and hit_mismatches to be identical.
+        if (scalar(@query_mismatches) > 0) {
+            ##print "HMMMMM: 1       9        19        29        39        49        59        69        79        89        99\n";
+            ##print "QESTME: $q_seq\n";
+            ##print "HESTME: $h_seq\n";
+            for my $i (0 .. $#query_mismatches) {
+                my $q_miss = $query_mismatches[$i] - 1;
+                my $h_miss = $hit_mismatches[$i] - 1;
+                my $qseq = substr($q_raw, $q_miss, 1);
+                my $hseq = substr($h_raw, $h_miss, 1);
+                ##print "TESTME1: $qseq $q_miss $hseq $h_miss\n";
+                $hits->{$q_miss}->{type} = 'mismatch';
+                $hits->{$q_miss}->{ref} = $qseq;
+                $hits->{$q_miss}->{hit} = $hseq;
+                ##print "MISMATCH: ${query_name}: ${q_miss} ${qseq} ${hseq}\n";
             }
 
-            my $hit_len;
-            my $hit_matches;
-            my $first_qstart = -1;
-            my $first_qend = -1;
-            my $first_lstart = -1;
-            my $first_lend = -1;
-            my $hsp_count = 0;
-            my $hits = {};
-
-            while (my $hsp = $hit->next_hsp) {
-                my @mismatch_indices = $hsp->seq_inds('query', 'mismatch');
-                if (scalar(@mismatch_indices) > 0) {
-                    my $q_seq = $hsp->query_string;
-                    my $h_seq = $hsp->hit_string;
-                    for my $ind (@mismatch_indices) {
-                        my $q = substr($q_seq, $ind - 1, 1);
-                        my $h = substr($h_seq, $ind - 1, 1);
-                        $hits->{$ind}->{type} = 'mismatch';
+            if (scalar(@template_gap) > 0) {
+                if (scalar(@template_gap) > 0) {
+                    for my $ind (@template_gap) {
+                        my $q = substr($q_seq, $ind - 2, 6);
+                        my $h = substr($h_seq, $ind - 2, 6);
+                        $hits->{$ind}->{type} = 'ins';
                         $hits->{$ind}->{ref} = $q;
-                        $hits->{$ind}->{hit} = $h;
-                        ##print "MISMATCH: $query_name: $ind $q $h\n";
-                    }
-                }
-                my @del_indices = $hsp->seq_inds('query', 'gap');
-                if (scalar(@del_indices) > 0) {
-                    if (scalar(@del_indices) > 0) {
-                        my $q_seq = $hsp->query_string;
-                        my $h_seq = $hsp->hit_string;
-                        for my $ind (@del_indices) {
-                            my $q = substr($q_seq, $ind - 2, 6);
-                            my $h = substr($h_seq, $ind - 2, 6);
-                            $hits->{$ind}->{type} = 'del';
-                            $hits->{$ind}->{ref} = $q;
-                            ##print "DEL: $query_name: $ind $q $h\n";
-                        }
-                    }
-                }
-                my @ins_indices = $hsp->seq_inds('hit', 'gap');
-                if (scalar(@ins_indices) > 0) {
-                    if (scalar(@ins_indices) > 0) {
-                        my $q_seq = $hsp->query_string;
-                        my $h_seq = $hsp->hit_string;
-                        for my $ind (@ins_indices) {
-                            my $q = substr($q_seq, $ind - 2, 6);
-                            my $h = substr($h_seq, $ind - 2, 6);
-                            $hits->{$ind}->{type} = 'ins';
-                            $hits->{$ind}->{ref} = $h;
-                            ##print "INS: $query_name: $ind $q $h\n";
-                        }
+                        ##print "INS (template gap): ${query_name}: ${ind} ${q} ${h}\n";
                     }
                 }
             }
+
+            if (scalar(@product_gap) > 0) {
+                if (scalar(@product_gap) > 0) {
+                    for my $ind (@product_gap) {
+                        my $q = substr($q_seq, $ind - 2, 6);
+                        my $h = substr($h_seq, $ind - 2, 6);
+                        $hits->{$ind}->{type} = 'del';
+                        $hits->{$ind}->{ref} = $h;
+                        ##print "DEL (product gap): ${query_name}: ${ind} ${q} ${h}\n";
+                    }
+                }
+            }
+
             push(@hitlst, $hits);
+            my $hitlength = scalar(@hitlst);
             $indices->{$index} = \@hitlst;
-        }   ## End of each hit of a result.
-    }       ## End of each result.
+        }                       ## End of each hit of a result.
+    }                           ## End of each result.
     $f->close();
-    store($indices, $data_file);
+    ##my $stored = store($indices, $data_file);
+    print "Stored indices to $data_file.\n";
+    ## I think this is a good place to write some information about what was extracted.
+    ## I need a reminder of this data structure.
+    ## $data->{some index}->[ { 10 }->{type}='ins' ->{ref}='A'}, { 20 }->... ];
+    ## $data->{same index}->[ { 12 }->{type}='mis' ] ...
+    ## So hash of arrays of hashes of hashes.
+
+    foreach my $idx (keys %{$indices}) {
+        ## Each element of @hitlst is one read.
+        my @hitlst = @{$indices->{$idx}};
+        my $num = scalar(@hitlst);
+        ## Each hit in hitlst is either an empty or an interesting hash.
+        my $c = 0;
+      POSLOOP: foreach my $datum (@hitlst) {
+            $c++;
+          HITLOOP: foreach my $pos (keys %{$datum}) {
+                my $posref = $datum->{$pos};
+                my $string = qq"";
+                if ($posref->{type} eq 'ins') {
+                    $string = qq"${idx}\t${c}\t${num}\t${pos}\tins\t$posref->{ref}\t \n";
+                    print $string;
+                } elsif ($posref->{type} eq 'del') {
+                    $string = qq"${idx}\t${c}\t${num}\t${pos}\tdel\t \t$posref->{ref}\n";
+                    print $string;
+                } else {
+                    $string = qq"${idx}\t${c}\t${num}\t${pos}\tmis\t$posref->{ref}\t$posref->{hit}\n";
+                    print $string;
+                }
+                print $out $string;
+            }  ## End looking at each position inside the list of positions.
+        }      ## End looking at the list of positions in a given read.
+    }          ## End looking at the reads in an index.
+    print "\n";
+    $out->close();
     return($indices);
 }
 
@@ -189,9 +241,19 @@ sub Count_Parsed {
     my (%args) = @_;
     print "Starting counters.\n";
     my $input = $args{input};
+    my $type = ref($input);
+    my $data;
+    if (!$type) {
+        ## This is not a reference, and therefore a filename.
+        $data = retrieve($input);
+    } else {
+        $data = $input;
+    }
+    use Data::Dumper;
+    print Dumper $data;
     my @count_by_hits = ();
-    foreach my $i (keys %{$input}) {
-        my @hitlst = @{$input->{$i}};
+    foreach my $i (keys %{$data}) {
+        my @hitlst = @{$data->{$i}};
         my $num_hits = scalar(@hitlst);
         if ($count_by_hits[$num_hits]) {
             $count_by_hits[$num_hits]++;

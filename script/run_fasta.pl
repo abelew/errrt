@@ -35,7 +35,7 @@ GetOptions("length=i" => \$length, # numeric
            "verbose" => \$verbose) # flag
     or die("Error in command line arguments\n");
 my $output = basename($input, ('.xz', '.gz', '.bz2'));
-$output = basename($output, ('.fastq'));
+$output = basename($output, ('.fastq', '.fasta'));
 $output = basename($output, ('.extendedFrags'));
 $output = qq"${output}.fasta";
 my $terminal_string = substr($template, 0, $length);

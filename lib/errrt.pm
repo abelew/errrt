@@ -22,6 +22,38 @@ use strict;
 use 5.008_005;
 our $VERSION = '0.01';
 
+=head1 NAME
+
+errrt - A few methods for boiling down RT error rate experiments.
+
+=head1 SYNOPSIS
+
+my $fasta_run = errrt::Run_Fasta(
+  input => $output,
+  library_name => $library_name,
+  library_seq => $template,
+  fasta_cmd => $fasta_cmd,
+  fasta_args => $fasta_args,
+);
+my $fasta = basename($output, ('.fasta'));
+my $fasta_result = "${fasta}_fasta.txt";
+
+print "Parsing ${fasta_result}\n";
+my $indices = errrt::Parse_Fasta(input => $fasta_result);
+
+print "Counting results\n";
+my $counts = errrt::Count_Parsed(input => $indices);
+
+=head2 Methods
+
+=over 4
+
+=item C<Extract_Reads>
+
+Look for a prefix sequence at the beginning of every read to identify reads suitable
+for future analysis.  Write them to a new fasta file.
+
+=cut
 sub Extract_Reads {
     my (%args) = @_;
     my $inputted = FileHandle->new("less $args{input} |");
@@ -76,6 +108,12 @@ $data
     return($indices)
 }
 
+=head2 C<Run_Fasta>
+
+Invoke the fasta36 suite of programs with some reasonable options for learning the errors
+from a fasta file of suitable reads.
+
+=cut
 sub Run_Fasta {
     my (%args) = @_;
     my $library = FileHandle->new(">$args{library_name}");
@@ -86,7 +124,8 @@ $args{library_seq}
     my $error = qq"${output}_fasta.err";
     $output = qq"${output}_fasta.txt";
 
-    my $runner = qq"$args{fasta_cmd} $args{fasta_args} $args{input} $args{library_name} 2>${error} | xz -9e > ${output}.xz";
+    my $runner = qq"$args{fasta_cmd} $args{fasta_args} $args{input} $args{library_name} 2>${error} |\
+   xz -9e > ${output}.xz";
     my $handle = IO::Handle->new;
     print "Starting $runner\n";
     open($handle, "$runner |");
@@ -97,6 +136,11 @@ $args{library_seq}
     return($output);
 }
 
+=head2 C<Parse_Fasta>
+
+Read the output from fasta36 and extract a data structure of mismatches, insertions, and deletions.
+
+=cut
 sub Parse_Fasta {
     my (%args) = @_;
     my $f = FileHandle->new("less $args{input} |");
@@ -272,35 +316,14 @@ sub Count_Parsed {
 }
 
 1;
+
 __END__
 
-=encoding utf-8
 
-=head1 NAME
+=back
 
-errrt - Blah blah blah
+=head1 AUTHOR - atb
 
-=head1 SYNOPSIS
-
-  use errrt;
-
-=head1 DESCRIPTION
-
-errrt is
-
-=head1 AUTHOR
-
-Ashton Trey Belew E<lt>abelew@gmail.comE<gt>
-
-=head1 COPYRIGHT
-
-Copyright 2019- Ashton Trey Belew
-
-=head1 LICENSE
-
-This library is free software; you can redistribute it and/or modify
-it under the same terms as Perl itself.
-
-=head1 SEE ALSO
+Email  <abelew@gmail.com>
 
 =cut

@@ -28,4 +28,7 @@ GetOptions(
     "verbose" => \$verbose) # flag
     or die("Error in command line arguments\n");
 print "Parsing ${input} and writing to ${output}\n";
-my $indices = errrt::Parse_Fasta(input => $input, output => $output, template => $template);
+my $indices = errrt::Parse_Fasta(
+    input => $input,
+    output => $output,
+    template => $template);

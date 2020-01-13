@@ -36,6 +36,36 @@ observed per index, perform an alignment against the template, categorize each
 class of mismatch (insertion, deletion, transition, transversion), and count how
 many are observed which span groups >= 3 reads vs. ones which do not.
 
+# What was performed
+
+Dr. Destefano came by yesterday with a writeup of precisely the process he
+followed.  I think it would be useful to add here.
+
+1.  Given a plasmid template, he made a ~300 dsDNA template with 8 cycles of Q5
+    polymerase.
+
+2.  Used 30 rounds of Q5 polymerase and an asymetric PCR protocol to generate a
+    ssDNA template.
+
+3.  Added the population of primers which have 14 nt. 5' random sequence to
+    prime the template.
+
+4.  Either added the RT or Q5 to create a slightly longer ss(R|D)NA experimental
+    product.
+
+5.  Ran this ~200 nt. product on a PAGE gel and cut it out.
+
+6.  Performed ~ 20 cycles with Q5 to generate more copies of ssDNA.
+
+7.  Performed sequencing library generation process, ending in the addition of
+    sequencing primers and a final 9 cycle PCR reaction using the illumina(or
+    whomever) provided enzyme.
+
+8.  Performed sequencing.
+
+Thus there have been ~ 29 cycles of PCR and 1+ PAGE purifications between the RT
+reaction and the sequencing reaction.
+
 ## Step 1: Merge the forward/reverse reads
 
 I use the tool 'flash' for this.  For example, using the first 40,000 reads from
@@ -143,18 +173,9 @@ This data structure is stored on disk for future analysis.
 
 ## Step 5 Poke at the set of observed differences.
 
-I have not yet implemented this because I am not sure what I want to do here
-yet.  There are a few obvious things to do:
+This is now handled by the accompanying R library: 'Rerrrt'
 
-1. Filter that data structure looking for only the changes observed which are
-   found in > n reads with an indentical RT index.  The relatively small number
-   of reads expected in this category define the errors introduced by the
-   reverse transcriptase.
-2. Simply record a matrix where columns are the positions in the template and
-   the rows are differences.  This will be interesting to me to just get a
-   distribution of error rates over all.
-3. Do #2, but for the #1 filtered data.  If done intelligently, this should
-   provide a way to do some interesting statistics with the data.
+http://github.com/abelew/Rerrrt
 
 # AUTHOR
 

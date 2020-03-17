@@ -39,15 +39,17 @@ jobs:
         run: |
           apt-get update
           apt-get -yqq install cpanminus libmodule-build-tiny-perl
-          cpan install ExtUtils::Config
-          cpan install Test::Pod
-          cpan install Test::Pod::Coverage
-          cpan install Module::Build::Tiny
-      - name: perl -V
-        run: perl -V
-      - name: Build
+      - name: Install Test::Pod
+        run: |
+          cpan -fi Test::Pod
+          cpan -fi Test::Pod::Coverage
+      - name: Install Module::Build::Tiny
+        run: |
+          cpan -fi ExtUtils::Config
+          cpan -fi Module::Build::Tiny
+      - name: Build errrt
         run: make build
-      - name: Test
+      - name: Test errrt
         run: make test
-      - name: Install
+      - name: Install errrt
         run: make install

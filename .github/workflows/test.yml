@@ -38,8 +38,7 @@ jobs:
       - name: Install prerequisites
         run: |
           apt-get update
-          apt-get -yqq install cpanminus
-          cpanm Module::Build::Tiny
+          apt-get -yqq install cpanminus libmodule-build-tiny-perl
       - name: perl -V
         run: perl -V
       - name: Build

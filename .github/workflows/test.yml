@@ -39,6 +39,7 @@ jobs:
         run: |
           apt-get update
           apt-get -yqq install cpanminus libmodule-build-tiny-perl
+          cpan install Module::Build::Tiny
       - name: perl -V
         run: perl -V
       - name: Build

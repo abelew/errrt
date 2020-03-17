@@ -1,5 +1,4 @@
 #!/usr/bin/env perl
-use lib '/mnt/sshfs/cbcbsub/fs/cbcb-lab/nelsayed/scratch/atb/dnaseq/rt_erates_destefano_2019/errrt/lib';
 use strict;
 use Modern::Perl;
 use autodie qw":all";

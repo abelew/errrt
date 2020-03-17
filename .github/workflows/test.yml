@@ -38,7 +38,7 @@ jobs:
       - name: Install prerequisites
         run: |
           apt-get update
-          apt-get -yqq install cpanminus libmodule-build-tiny-perl
+          apt-get -yqq install cpanminus fasta3 xz-utils
       - name: Install Test::Pod
         run: |
           cpan -fi Test::Pod
@@ -47,9 +47,12 @@ jobs:
         run: |
           cpan -fi ExtUtils::Config
           cpan -fi Module::Build::Tiny
-      - name: Build errrt
-        run: make build
-      - name: Test errrt
-        run: make test
-      - name: Install errrt
-        run: make install
+      - name: Install Bio::SeqIO
+        run: |
+          cpan -fi Bio::SeqIO
+      - name: Create Build
+        run: perl Build.PL
+      - name: Build installdeps
+        run: ./Build installdeps
+      - name: Build install
+        run: ./Build install

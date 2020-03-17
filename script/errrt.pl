@@ -1,5 +1,4 @@
 #!/usr/bin/env perl
-use lib '/mnt/sshfs/cbcbsub/fs/cbcb-lab/nelsayed/scratch/atb/dnaseq/rt_erates_destefano_2019/errrt/lib';
 use strict;
 use Modern::Perl;
 use autodie qw":all";
@@ -17,7 +16,7 @@ use Storable qw"store retrieve nstore";
 ## Step 1 options: merge read 1 and read 2 into a single pile of sequences.
 my $read1 = '';
 my $read2 = '';
-my $flash = '/cbcb/sw/RedHat-7-x86_64/common/local/flash/1.2.11/bin/flash';
+my $flash = 'flash';
 my $flash_args = ' -d 1 -b 1 --compress-prog=xz --compress-prog-args=-9e ';
 my $step1_out = 'step1';
 ## Step 2 options: find reads containing at least the first n($length) nucleotides of the template.
@@ -27,7 +26,7 @@ my $length = 9;
 my $prefix = 14;
 my $step2_out = 'step2';
 ## Step 3 options: Use fasta36 to look for mutant reads.
-my $fasta_cmd = '/cbcb/sw/RedHat-7-x86_64/common/local/fasta/36.3.5/bin/fasta36';
+my $fasta_cmd = 'fasta36';
 my $fasta_args = '-3 -d 1 -b 1 -Z 1 -a -w 250 -n ';
 my $step3_out = 'step3';
 ## Step 4 options: Parse the fasta36 output.

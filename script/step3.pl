@@ -1,5 +1,4 @@
 #!/usr/bin/env perl
-use lib '/mnt/sshfs/cbcbsub/fs/cbcb-lab/nelsayed/scratch/atb/dnaseq/rt_erates_destefano_2019/errrt/lib';
 use strict;
 use Modern::Perl;
 use autodie qw":all";
@@ -18,7 +17,7 @@ use Storable qw"store retrieve nstore";
 my $template = 'GTGAGTCGTATTACAATTCACTGGCCGTCGTTTTACAACGTCGTGACTGGGAAAACCCTGGCGTTACCCAACTTAATCGCCTTGCAGCACATCCCCCTTTCGCCAGCTGGCGTAATAGCGAAGAGGCCCGCACCGATCGCCCTTCCCAACAGTTGCGCAGCCTGAATGGCGAATGGCGCTAATAAGATATCATCGGCTTTC';
 my $final = 'CTGGCCGTCGTTTTACAACGTCGTGACTGGGAAAACCCTGGCGTTACCCAACTTAATCGCCTTGCAGCACATCCCCCTTTCGCCAGCTGGCGTAATAGCGAAGAGGCCCGCACCGATCGCCCTTCCCAACAGTTGCGCAGCCTGAATGGCGAATGGCGC';
 my $library_name = 'template.fasta';
-my $fasta_cmd = '/cbcb/sw/RedHat-7-x86_64/common/local/fasta/36.3.5/bin/fasta36';
+my $fasta_cmd = 'fasta36';
 my $fasta_args = '-3 -d 1 -b 1 -Z 1 -a -w 250 -n ';
 my $input = 'step2.fasta';
 my $output = 'step3.txt.xz';

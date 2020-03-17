@@ -1,5 +1,4 @@
 #!/usr/bin/env perl
-use lib '/mnt/sshfs/cbcbsub/fs/cbcb-lab/nelsayed/scratch/atb/dnaseq/rt_erates_destefano_2019/errrt/lib';
 use strict;
 use Modern::Perl;
 use autodie qw":all";
@@ -14,7 +13,7 @@ use File::Basename;
 use FileHandle;
 use Storable qw"store retrieve nstore";
 
-my $flash = '/cbcb/sw/RedHat-7-x86_64/common/local/flash/1.2.11/bin/flash';
+my $flash = 'flash';
 my $output = 'step1';
 my $flash_args = ' --compress-prog=xz --compress-prog-args=-9e';
 my $read1 = '';

@@ -36,7 +36,9 @@ jobs:
     steps:
       - uses: actions/checkout@v1
       - name: Install prerequisites
-        run: sudo apt-get -y install libmodule-build-tiny-perl
+        run: |
+          sudo apt-get update
+          sudo apt-get -yqq install libmodule-build-tiny-perl
       - name: perl -V
         run: perl -V
       - name: Build

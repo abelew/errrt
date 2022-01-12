@@ -175,7 +175,11 @@ This data structure is stored on disk for future analysis.
 
 This is now handled by the accompanying R library: 'Rerrrt'
 
-http://github.com/abelew/Rerrrt
+https://github.com/abelew/Rerrrt
+
+The actual raw data and results from each step of this preprocessing process is available here:
+
+https://rawerrors.umiacs.io/error_rate_raw_and_processed_data.tar
 
 # AUTHOR
 

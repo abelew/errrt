@@ -1,10 +1,12 @@
 #!/usr/bin/env perl
+use Cwd qw"abs_path cwd";
+BEGIN { unshift(@INC, abs_path('lib')) }
+
 use strict;
 use Modern::Perl;
 use autodie qw":all";
 use warnings;
 use diagnostics;
-use Cwd;
 use Getopt::Long;
 use errrt;
 
@@ -17,11 +19,18 @@ use Storable qw"store retrieve nstore";
 my $read1 = '';
 my $read2 = '';
 my $flash = 'flash';
-my $flash_args = ' -d 1 -b 1 --compress-prog=xz --compress-prog-args=-9e ';
+##my $flash_args = ' -d 1 -b 1 --compress-prog=xz --compress-prog-args=-9e ';
+##my $flash_args = ' --compress-prog=xz --compress-prog-args=-9e ';
 my $step1_out = 'step1';
 ## Step 2 options: find reads containing at least the first n($length) nucleotides of the template.
-my $template = 'GTGAGTCGTATTACAATTCACTGGCCGTCGTTTTACAACGTCGTGACTGGGAAAACCCTGGCGTTACCCAACTTAATCGCCTTGCAGCACATCCCCCTTTCGCCAGCTGGCGTAATAGCGAAGAGGCCCGCACCGATCGCCCTTCCCAACAGTTGCGCAGCCTGAATGGCGAATGGCGCTAATAAGATATCATCGGCTTTC';
-my $final = 'CTGGCCGTCGTTTTACAACGTCGTGACTGGGAAAACCCTGGCGTTACCCAACTTAATCGCCTTGCAGCACATCCCCCTTTCGCCAGCTGGCGTAATAGCGAAGAGGCCCGCACCGATCGCCCTTCCCAACAGTTGCGCAGCCTGAATGGCGAATGGCGC';
+##my $template = 'GTGAGTCGTATTACAATTCACTGGCCGTCGTTTTACAACGTCGTGACTGGGAAAACCCTGGCGTTACCCAACTTAATCGCCTTGCAGCACATCCCCCTTTCGCCAGCTGGCGTAATAGCGAAGAGGCCCGCACCGATCGCCCTTCCCAACAGTTGCGCAGCCTGAATGGCGAATGGCGCTAATAAGATATCATCGGCTTTC';
+##my $final = 'CTGGCCGTCGTTTTACAACGTCGTGACTGGGAAAACCCTGGCGTTACCCAACTTAATCGCCTTGCAGCACATCCCCCTTTCGCCAGCTGGCGTAATAGCGAAGAGGCCCGCACCGATCGCCCTTCCCAACAGTTGCGCAGCCTGAATGGCGAATGGCGC';
+
+## These are the sequences used in the second experiment.
+my $template = 'TATCCACTGGCTACATGAACCGCCACCAGGATAATTTTTCCTTCTAGATGTGTGCAATCTAGTTGCCATATTCCTGGACTACAGTCTACTTGTCCATGCATGGCTTCTCCTTTTAGCTGACATTTATCACAGCTGGCTACTATTTCTTTTGCTACTACAGGTGGTAAGTTAAAATCACTAGCCATGGCTCTCCAATTACTGTGATATTTCTCATGTTCTTCTTGGGCCTTATCTATTCCACTGTCTCTTATACACATCTCCGAGCCCACGAGAC';
+my $final = 'CGCCACCAGGATAATTTTTCCTTCTAGATGTGTGCAATCTAGTTGCCATATTCCTGGACTACAGTCTACTTGTCCATGCATGGCTTCTCCTTTTAGCTGACATTTATCACAGCTGGCTACTATTTCTTTTGCTACTACAGGTGGTAAGTTAAAATCACTAGCCATGGCTCTCCAATTACTGTGATATTTCTCATGTTCTT';
+
+my $correct = 1;  ## Use RACER to correct the raw reads?
 my $length = 9;
 my $prefix = 14;
 my $step2_out = 'step2';
@@ -35,6 +44,7 @@ my $verbose;
 
 GetOptions(
     ## Step 1 args
+    "correct" => \$correct,
     "read1=s" => \$read1,
     "read2=s" => \$read2,
     "flash=s" => \$flash,
@@ -60,6 +70,7 @@ print "Running ${flash} with ${flash_args} on ${read1} and ${read2}.\n";
 my $merged = errrt::Merge_Reads(
     read1 => $read1,
     read2 => $read2,
+    correct => $correct,
     flash => $flash,
     flash_args => $flash_args,
     output => $step1_out,

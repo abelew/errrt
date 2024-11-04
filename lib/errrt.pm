@@ -9,6 +9,7 @@ use warnings qw"all";
 use Bio::SearchIO::fasta;
 use Bio::Seq;
 use Cwd;
+use Error qw(:try);
 use FileHandle;
 use File::Basename qw"dirname basename";
 use File::Path qw"make_path remove_tree";
@@ -56,14 +57,42 @@ Invoke flash to merge the read1/read2 pairs into single reads.
 =cut
 sub Merge_Reads {
     my (%args) = @_;
-    my $out = FileHandle->new(">flash.out");
+    if ($args{correct}) {
+        my $racer = qq"bash -c 'less $args{read1} > r1.fastq
+less $args{read2} > r2.fastq
+RACER r1.fastq r1_cor.fastq 1000000 2>\&1
+RACER r2.fastq r2_cor.fastq 1000000 2>\&1'";
+        my $racer_out = FileHandle->new(">racer.out");
+        my $racer_handle = IO::Handle->new;
+        print "Starting $racer\n";
+        open($racer_handle, "$racer |");
+        while (my $line = <$racer_handle>) {
+            print $racer_out "$line\n";
+        }
+        close($racer_handle);
+        $racer_out->close();
+    } else {
+        my $racer = qq"bash -c 'less $args{read1} > r1_cor.fastq
+less $args{read2} > r2_cor.fastq'";
+        my $racer_out = FileHandle->new(">racer.out");
+        my $racer_handle = IO::Handle->new;
+        print "Starting $racer\n";
+        open($racer_handle, "$racer |");
+        while (my $line = <$racer_handle>) {
+            print $racer_out "$line\n";
+        }
+        close($racer_handle);
+        $racer_out->close();
+    }
+
+    my $output_filename = qq"flash.out";
+    my $out = FileHandle->new(">${output_filename}");
     ##$|=1;
     ##my $pid = open3(\*IN,\*OUT, \*ERR , '/bin/bash');
     my $runner = qq"bash -c '$args{flash} \\
   -o $args{output} \\
   $args{flash_args} \\
-  <(less $args{read1}) \\
-  <(less $args{read2})'";
+  r1_cor.fastq r2_cor.fastq'";
     ##print IN "${runner}\n";
     ##my $result = <OUT>;
     ##print $out $result;
@@ -76,6 +105,31 @@ sub Merge_Reads {
     }
     close($handle);
     $out->close();
+    return($output_filename);
+}
+
+
+sub wrap_next {
+    my $in = $_[0];
+    my $in_seq = undef;
+    try {
+        $in_seq = $in->next_dataset();
+    }
+    catch Bio::Root::Exception with {
+        my $err = shift;
+    }
+    otherwise {
+        my $err = shift;
+        print STDERR "An unexpected exception occurred: \n$err";
+        # By placing an the error object reference within double quotes,
+        # you're invoking its stringify() method.
+    }
+    finally {
+        # Any code that you want to execute regardless of whether or not
+        # an exception occurred.
+    };
+    return($in_seq);
+    ## READS: while (my $in_seq = $in->next_dataset()) {
 }
 
 =item C<Extract_Reads>
@@ -90,63 +144,97 @@ sub Extract_Reads {
     my $inputted = FileHandle->new("less $args{input} |");
     my $in = Bio::SeqIO->new(-fh => $inputted, -format => 'Fastq');
     my $hist = FileHandle->new(">idx_count.txt");
+    my $summary = FileHandle->new(">extract_summary.txt");
     my $fasta = FileHandle->new(">$args{output}");
     my $ident_file = basename($args{output}, ('.fasta'));
     my $ident = FileHandle->new(">${ident_file}_identical_reads.txt");
+    my $invalid = FileHandle->new(">${ident_file}_invalid_reads.txt");
     print $ident "read_num\tdirection\tindex\n";
     my $data_file = "$args{output}.pdata";
 
+    my $good_forward_prefix = 0;
+    my $good_reverse_prefix = 0;
+    my $bad_prefix = 0;
     my $indices = {};
     my $count = 0;
     my $identical = 0;
     my $non_identical = 0;
     my $success = 0;
-  READS: while (my $in_seq = $in->next_dataset()) {
-        $count++;
-        my $id = $in_seq->{'-descriptor'};
-        my $sequence = $in_seq->{'-seq'};
-        my $qual = $in_seq->{'-raw_quality'};
-        ## Assume the $length long terminal portion of the sequence is in the forward direction.
-        my $direction = "f";
-        ## If we do not observe the terminal sequence in a read,
-        ## Then set the direction to 'reverse', reverse complement
-        ## the read, and look again.
-        unless ($sequence =~ m/$args{terminal}/) {
-            $direction = "r";
-            $sequence = reverse($sequence);
-            $sequence =~ tr/ATGC/TACG/;
-        }
-        ## Let us now pull the ${prefix} long fragment as the index along
-        ## with all the sequence which follows and print it to a fasta file
-        ## which will be aligned against the template with fasta36.
-        if ($sequence =~ m/^(.+)([ATGC]{$args{prefix}})($args{terminal}.*)$/) {
-            my $index = $2;
-            my $data = $3;
-            $success++;
-            if ($data =~ m/$final_seq/) {
-                $identical++;
-                print $ident "${count}\t${direction}\t${index}\n";
-            } else {
-                $non_identical++;
-                print $fasta ">${count}_${direction}_${index}
+  READS: while (my $in_seq = wrap_next($in)) {
+      $count++;
+      next READS if (!defined($in_seq));
+      my $id = $in_seq->{'-descriptor'};
+      my $sequence = $in_seq->{'-seq'};
+      my $qual = $in_seq->{'-raw_quality'};
+      ## Assume the $length long terminal portion of the sequence is in the forward direction.
+      my $direction = 'f';
+      ## If we do not observe the terminal sequence in a read,
+      ## Then set the direction to 'reverse', reverse complement
+      ## the read, and look again.
+      my $found = 0;
+      if ($sequence =~ m/$args{terminal}/) {
+          $found++;
+          $good_forward_prefix++;
+      } else {
+          my $rev_sequence = reverse($sequence);
+          $rev_sequence =~ tr/ATGCatgc/TACGtacg/;
+          if ($rev_sequence =~ m/$args{terminal}/) {
+              $direction = 'r';
+              $sequence = $rev_sequence;
+              $good_reverse_prefix++;
+              $found++;
+              print "Found terminal prefix on the reverse orientation.\n";
+          } else {
+              $bad_prefix++;
+              print "This sequence does not have $args{terminal}: $sequence\n";
+          }
+      }
+      ## Let us now pull the ${prefix} long fragment as the index along
+      ## with all the sequence which follows and print it to a fasta file
+      ## which will be aligned against the template with fasta36.
+
+      if ($sequence =~ m/^(.+)([ATGC]{$args{prefix}})($args{terminal}.*)$/) {
+          my $index = $2;
+          my $data = $3;
+          $success++;
+          if ($data =~ m/$final_seq/) {
+              $identical++;
+              print $ident "${count}\t${direction}\t${index}\n";
+          } else {
+              $non_identical++;
+              print $fasta ">${count}_${direction}_${index}
 $data
 ";
-            }
-            if (defined($indices->{$index})) {
-                $indices->{$index} = $indices->{$index} + 1;
-            } else {
-                $indices->{$index} = 1;
-            }
-        }                      ## End checking for a read with a valid terminus.
-    }                          ## End iterating over every read.
+          }
+          if (defined($indices->{$index})) {
+              $indices->{$index} = $indices->{$index} + 1;
+          } else {
+              $indices->{$index} = 1;
+          }
+          ## End checking for a read with a valid terminus.
+      } else {
+          ## If it does not have a valid terminus, write it to the invalid_terminus.fasta file.
+          print $invalid ">${id}
+${sequence}
+";
+      }
+  } ## End iterating over every read.
     foreach my $k (keys %{$indices}) {
         print $hist "$k\t$indices->{$k}\n";
-    }
+  }
     $hist->close();
     $inputted->close();
     $fasta->close();
+    $invalid->close();
     $ident->close();
-    print "${success} indexed reads; identical: ${identical}, non-identical: ${non_identical}\n";
+    print $summary "Observed reads: ${count}.\n";
+    print $summary "Reads with a suitable prefix on the forward strand: ${good_forward_prefix}.\n";
+    print $summary "Reads with a suitable prefix on the reverse strand: ${good_reverse_prefix}.\n";
+    print $summary "Reads without a suitable prefix: ${bad_prefix}.\n";
+    my $identical_string = qq"${success} indexed reads; identical: ${identical}, non-identical: ${non_identical}\n";
+    print $summary $identical_string;
+    print $identical_string;
+    $summary->close();
     store($indices, $data_file);
     return($indices)
 }
@@ -182,6 +270,30 @@ $args{library_seq}
     return($output);
 }
 
+sub wrap_result {
+    my $in = $_[0];
+    my $in_result = undef;
+    try {
+        ##  SEARCHLOOP: while (my $result = $searchio->next_result()) {
+        $in_result = $in->next_result();
+    }
+    catch Bio::Root::Exception with {
+        my $err = shift;
+    }
+    otherwise {
+        my $err = shift;
+        print STDERR "An unexpected exception occurred: \n$err";
+        # By placing an the error object reference within double quotes,
+        # you're invoking its stringify() method.
+    }
+    finally {
+        # Any code that you want to execute regardless of whether or not
+        # an exception occurred.
+    };
+    return($in_seq);
+    ##  SEARCHLOOP: while (my $result = $searchio->next_result()) {
+}
+
 =head2 C<Parse_Fasta>
 
 Read the output from fasta36 and extract a data structure of mismatches, insertions, and deletions.
@@ -207,153 +319,163 @@ sub Parse_Fasta {
     my $results = 0;
     my $indices = {};
   SEARCHLOOP: while (my $result = $searchio->next_result()) {
-        $results++;
-        ## There is only ever 1 hit.
-        my $hit = $result->next_hit;
-        my $query_name = $result->query_name();
-        my $query_length = $result->query_length();
-        my $accession = $hit->accession();
-        my $library_id = $hit->name();
-        my $length = $hit->length();
-        ##my $score = $hit->raw_score();
-        ##my $sig = $hit->significance();
-        ##my $ident = $hit->frac_identical();
-        my $hstrand = $hit->strand('hit');
-        my $qstrand = $hit->strand('query');
-        my ($readid, $direction, $index) = split(/_/, $query_name);
-        if ($hstrand ne $qstrand) {
-            ## I found a couple of reads which are messed up and reverse complementing
-            ## I am not completely certain this will make them go away, but I think it will.
-            print "SKIPPING: ${query_name} hit strand: $hstrand query strand: $qstrand\n";
-            next SEARCHLOOP;
-        }
-        my @hitlst = ();
-        if ($indices->{$index}) {
-            @hitlst = @{$indices->{$index}};
-        }
+      $results++;
+      ## There is only ever 1 hit.
+      my $hit = $result->next_hit;
+      my $query_name = $result->query_name();
+      my $query_length = $result->query_length();
+      my $accession = $hit->accession();
+      my $library_id = $hit->name();
+      my $length = $hit->length();
+      ##my $score = $hit->raw_score();
+      ##my $sig = $hit->significance();
+      ##my $ident = $hit->frac_identical();
+      my $hstrand = $hit->strand('hit');
+      my $qstrand = $hit->strand('query');
+      my ($readid, $direction, $index) = split(/_/, $query_name);
+      if ($hstrand ne $qstrand) {
+          ## I found a couple of reads which are messed up and reverse complementing
+          ## I am not completely certain this will make them go away, but I think it will.
+          print "SKIPPING: ${query_name} hit strand: $hstrand query strand: $qstrand\n";
+          next SEARCHLOOP;
+      }
+      my @hitlst = ();
+      if ($indices->{$index}) {
+          @hitlst = @{$indices->{$index}};
+      }
 
-        my $hit_len;
-        my $hit_matches;
-        my $first_qstart = -1;
-        my $first_qend = -1;
-        my $first_lstart = -1;
-        my $first_lend = -1;
-        my $hsp_count = 0;
-        my $hits = {};
+      my $hit_len;
+      my $hit_matches;
+      my $first_qstart = -1;
+      my $first_qend = -1;
+      my $first_lstart = -1;
+      my $first_lend = -1;
+      my $hsp_count = 0;
+      my $hits = {};
 
-        my $hsp = $hit->next_hsp;
-        ## IMPORTANT POINT OF CONFUSION:
-        ## The hit is the template sequence!
-        ## The query is my provided sequence.
-        my @template_mismatches = $hsp->seq_inds('hit', 'mismatch');
-        my @product_mismatches = $hsp->seq_inds('query', 'mismatch');
-        my @template_gaps = $hsp->seq_inds('hit', 'gap');
-        my @product_gaps = $hsp->seq_inds('query', 'gap');
-        my $num_mis = scalar(@template_mismatches);
-        my $tem_gap = scalar(@template_gaps);
-        my $pro_gap = scalar(@product_gaps);
-        my $num_muts = $num_mis + $tem_gap + $pro_gap;
-        print $numbers "${query_name}\t${num_muts}\n";
-        my $t_seq = $hsp->hit_string;
-        my @tseq = split(//, $t_seq);
-        my $p_seq = $hsp->query_string;
-        my @pseq = split(//, $p_seq);
-        my $t_raw = $t_seq;
-        $t_raw =~ s/\-//g;
-        $t_raw =~ s/^\s+//g;
-        my @traw = split(//, $t_raw);
-        my $p_raw = $p_seq;
-        $p_raw =~ s/\-//g;
-        $p_raw =~ s/^\s+//g;
-        my @praw = split(//, $p_raw);
-        ## I am increasingly confident that we cannot trust indels at the end of alignments.
-        ## No matter how I mess with the gap score/penalties, I get dumb alignments at the end.
-        ## The tests which look at the end of the aligned sequence attempt to address this problem
-        ## but I think a more aggressive approach will be required.  I think I will have to check
-        ## the position of the indel and just arbitrarily drop it if it is >= 200.
+      my $hsp = $hit->next_hsp;
+      ## IMPORTANT POINT OF CONFUSION:
+      ## The hit is the template sequence!
+      ## The query is my provided sequence.
+      my @template_mismatches = $hsp->seq_inds('hit', 'mismatch');
+      my @product_mismatches = $hsp->seq_inds('query', 'mismatch');
+      my @template_gaps = $hsp->seq_inds('hit', 'gap');
+      my @product_gaps = $hsp->seq_inds('query', 'gap');
+      my $num_mis = scalar(@template_mismatches);
+      my $tem_gap = scalar(@template_gaps);
+      my $pro_gap = scalar(@product_gaps);
+      my $num_muts = $num_mis + $tem_gap + $pro_gap;
+      print $numbers "${query_name}\t${num_muts}\n";
+      my $t_seq = $hsp->hit_string;
+      my @tseq = split(//, $t_seq);
+      my $p_seq = $hsp->query_string;
+      my @pseq = split(//, $p_seq);
+      my $t_raw = $t_seq;
+      $t_raw =~ s/\-//g;
+      $t_raw =~ s/^\s+//g;
+      my @traw = split(//, $t_raw);
+      my $p_raw = $p_seq;
+      $p_raw =~ s/\-//g;
+      $p_raw =~ s/^\s+//g;
+      my @praw = split(//, $p_raw);
+      ## I am increasingly confident that we cannot trust indels at the end of alignments.
+      ## No matter how I mess with the gap score/penalties, I get dumb alignments at the end.
+      ## The tests which look at the end of the aligned sequence attempt to address this problem
+      ## but I think a more aggressive approach will be required.  I think I will have to check
+      ## the position of the indel and just arbitrarily drop it if it is >= 200.
 
-        ## FIXME: I think there is an inconsistency in how I calculate the
-        ## product nucleotide.  In the case of insertions and mismatches I use
-        ## @praw, but in the case of deletions I use @pseq.  I would also like
-        ## to figure out a way to consistently understand why/when removing the
-        ## gap characters is necessary.  Presumably this is related to the weird
-        ## requirement of adding $i to $index_position.  One would assume that
-        ## we should use the raw data without the addition, but that does not
-        ## result in sensible results.
-        if (scalar(@template_gaps) > 0) {
-            for my $i (0 .. $#template_gaps) {
-                my $inc = $i + 1;
-                my $total = scalar(@template_gaps);
-                my $t_pos = $template_gaps[$i];
-                my $index_position = $t_pos;
-                ## I think the next two lines are a particularly nasty hack, and
-                ## I do not understand why they seem to be necessary to get
-                ## correct results.
-                my $product_nt = $praw[$index_position + $i];
-                my $template_nt = $tseq[$index_position + $i];
-                my $template_length = scalar(@traw);
-                if ($index_position >= $template_length) {
-                    print "We passed the end of the alignment.\n";
-                    next SEARCHLOOP;
-                } elsif ($index_position >= 200) {
-                    next SEARCHLOOP;
-                }
-                ##print "INS (template gap): ${index} ${index_position} $template_nt <$product_nt>\n"; #
-                $hits->{$index_position}->{type} = 'ins';
-                $hits->{$index_position}->{to} = $product_nt;
-                print $out qq"${readid}\t${index}\t${direction}\t${index_position}\tins\t \t${product_nt}\n";
-            }
-        }
-        if (scalar(@product_gaps) > 0) {
-            for my $i (0 .. $#product_gaps) {
-                my $p_pos = $product_gaps[$i];
-                my $inc = $i + 1;
-                my $total = scalar(@product_gaps);
-                my $index_position = $p_pos;
-                my $product_nt = $pseq[$index_position + $i];
-                my $template_nt = $tseq[$index_position + $i];
-                ## Now check that the alignment did not end.
-                my $product_length = scalar(@pseq);
-                if ($index_position >= $product_length) {
-                    print "We passed the end of the alignment.\n";
-                    next SEARCHLOOP;
-                } elsif ($index_position >= 200) {
-                    next SEARCHLOOP;
-                }
-                ##print "DEL (product gap): ${index} ${index_position} <${template_nt}> $product_nt\n";
-                $hits->{$index_position}->{type} = 'del';
-                $hits->{$index_position}->{from} = $template_nt;
-                print $out qq"${readid}\t${index}\t${direction}\t${index_position}\tdel\t${template_nt}\t \n";
-            }
-        }
-        if (scalar(@template_mismatches) > 0) {
-            ## I expect the length of query_mismatches and hit_mismatches to be identical.
-            for my $i (0 .. $#template_mismatches) {
-                ## Get the index position of the mismatch.
-                ## This can be confusing because of indels.
-                ## I want them 0 indexed, but fasta36 gives them as 1 indexed, so subtract 1.
-                my $t_pos = $template_mismatches[$i] - 1;
-                my $p_pos = $product_mismatches[$i] - 1;
-                ## $template_nt appears to be the correct one.
-                my $template_nt = $template[$t_pos];
-                my $inc = $i + 1;
-                my $total = scalar(@template_mismatches);
-                ## The product nucleotide is correct, except if there are indels
-                ## before the mismatches...  In that case, shenanigans occur,
-                ## and I absolutely cannot seem to figure out why.
-                my $product_nt = $praw[$p_pos];
-                my $index_position = $t_pos;
-                $hits->{$index_position}->{type} = 'mis';
-                $hits->{$index_position}->{from} = $template_nt;
-                $hits->{$index_position}->{to} = $product_nt;
-                ##print qq"MIS ${index}\t${inc}\t${total}\t${index_position}\tmis\t${template_nt}\t${product_nt}\n";
-                print $out qq"${readid}\t${index}\t${direction}\t${index_position}\tmis\t${template_nt}\t${product_nt}\n";
-            }
-        }
-        push(@hitlst, $hits);
-        my $hitlength = scalar(@hitlst);
-        $indices->{$index} = \@hitlst;
-    } ## End of each hit of a result.
+      ## FIXME: I think there is an inconsistency in how I calculate the
+      ## product nucleotide.  In the case of insertions and mismatches I use
+      ## @praw, but in the case of deletions I use @pseq.  I would also like
+      ## to figure out a way to consistently understand why/when removing the
+      ## gap characters is necessary.  Presumably this is related to the weird
+      ## requirement of adding $i to $index_position.  One would assume that
+      ## we should use the raw data without the addition, but that does not
+      ## result in sensible results.
+      if (scalar(@template_gaps) > 0) {
+          for my $i (0 .. $#template_gaps) {
+              my $inc = $i + 1;
+              my $total = scalar(@template_gaps);
+              my $t_pos = $template_gaps[$i];
+              my $index_position = $t_pos;
+              ## I think the next two lines are a particularly nasty hack, and
+              ## I do not understand why they seem to be necessary to get
+              ## correct results.
+              my $product_nt = $praw[$index_position + $i];
+              if (!defined($product_nt)) {
+                  print "The product nucleotide was not defined for position: $index_position in sequence @praw.\n";
+                  print "Setting product_nt to 'N'.\n";
+                  $product_nt = 'N';
+              }
+              my $template_nt = $tseq[$index_position + $i];
+              my $template_length = scalar(@traw);
+              if ($index_position >= $template_length) {
+                  print "We passed the end of the alignment.\n";
+                  next SEARCHLOOP;
+              } elsif ($index_position >= 200) {
+                  next SEARCHLOOP;
+              }
+              ##print "INS (template gap): ${index} ${index_position} $template_nt <$product_nt>\n"; #
+              $hits->{$index_position}->{type} = 'ins';
+              $hits->{$index_position}->{to} = $product_nt;
+              print $out qq"${readid}\t${index}\t${direction}\t${index_position}\tins\t \t${product_nt}\n";
+          }
+      }
+      if (scalar(@product_gaps) > 0) {
+          for my $i (0 .. $#product_gaps) {
+              my $p_pos = $product_gaps[$i];
+              my $inc = $i + 1;
+              my $total = scalar(@product_gaps);
+              my $index_position = $p_pos;
+              my $product_nt = $pseq[$index_position + $i];
+              my $template_nt = $tseq[$index_position + $i];
+              ## Now check that the alignment did not end.
+              my $product_length = scalar(@pseq);
+              if ($index_position >= $product_length) {
+                  print "We passed the end of the alignment.\n";
+                  next SEARCHLOOP;
+              } elsif ($index_position >= 200) {
+                  next SEARCHLOOP;
+              }
+              ##print "DEL (product gap): ${index} ${index_position} <${template_nt}> $product_nt\n";
+              $hits->{$index_position}->{type} = 'del';
+              $hits->{$index_position}->{from} = $template_nt;
+              print $out qq"${readid}\t${index}\t${direction}\t${index_position}\tdel\t${template_nt}\t \n";
+          }
+      }
+      if (scalar(@template_mismatches) > 0) {
+          ## I expect the length of query_mismatches and hit_mismatches to be identical.
+          for my $i (0 .. $#template_mismatches) {
+              ## Get the index position of the mismatch.
+              ## This can be confusing because of indels.
+              ## I want them 0 indexed, but fasta36 gives them as 1 indexed, so subtract 1.
+              my $t_pos = $template_mismatches[$i] - 1;
+              my $p_pos = $product_mismatches[$i] - 1;
+              ## $template_nt appears to be the correct one.
+              my $template_nt = $template[$t_pos];
+              my $template_length = scalar(@template);
+              if (!defined($template_nt)) {
+                  print "PROBLEM, template_nt is not defined, position: $t_pos vs $template_length
+@template\n";
+              }
+              my $inc = $i + 1;
+              my $total = scalar(@template_mismatches);
+              ## The product nucleotide is correct, except if there are indels
+              ## before the mismatches...  In that case, shenanigans occur,
+              ## and I absolutely cannot seem to figure out why.
+              my $product_nt = $praw[$p_pos];
+              my $index_position = $t_pos;
+              $hits->{$index_position}->{type} = 'mis';
+              $hits->{$index_position}->{from} = $template_nt;
+              $hits->{$index_position}->{to} = $product_nt;
+              ##print qq"MIS ${index}\t${inc}\t${total}\t${index_position}\tmis\t${template_nt}\t${product_nt}\n";
+              print $out qq"${readid}\t${index}\t${direction}\t${index_position}\tmis\t${template_nt}\t${product_nt}\n";
+          }
+      }
+      push(@hitlst, $hits);
+      my $hitlength = scalar(@hitlst);
+      $indices->{$index} = \@hitlst;
+  } ## End of each hit of a result.
     $f->close();
     my $stored = store($indices, $data_file);
     print "Stored indices to $data_file.\n";
